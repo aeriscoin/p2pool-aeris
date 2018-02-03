@@ -80,12 +80,12 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
         
         @defer.inlineCallbacks
         def connect_p2p():
-            # connect to dashd over dash-p2p
-            print '''Testing dashd P2P connection to '%s:%s'...''' % (args.dashd_address, args.dashd_p2p_port)
+            # connect to aerisd over dash-p2p
+            print '''Testing aerisd P2P connection to '%s:%s'...''' % (args.aerisd_address, args.aerisd_p2p_port)
             factory = dash_p2p.ClientFactory(net.PARENT)
-            reactor.connectTCP(args.dashd_address, args.dashd_p2p_port, factory)
+            reactor.connectTCP(args.aerisd_address, args.aerisd_p2p_port, factory)
             def long():
-                print '''    ...taking a while. Common reasons for this include all of dashd's connection slots being used...'''
+                print '''    ...taking a while. Common reasons for this include all of aerisd's connection slots being used...'''
             long_dc = reactor.callLater(5, long)
             yield factory.getProtocol() # waits until handshake is successful
             if not long_dc.called: long_dc.cancel()
@@ -93,20 +93,20 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
             print
             defer.returnValue(factory)
         
-        if args.testnet: # establish p2p connection first if testnet so dashd can work without connections
+        if args.testnet: # establish p2p connection first if testnet so aerisd can work without connections
             factory = yield connect_p2p()
         
-        # connect to dashd over JSON-RPC and do initial getmemorypool
-        url = '%s://%s:%i/' % ('https' if args.dashd_rpc_ssl else 'http', args.dashd_address, args.dashd_rpc_port)
-        print '''Testing dashd RPC connection to '%s' with username '%s'...''' % (url, args.dashd_rpc_username)
-        dashd = jsonrpc.HTTPProxy(url, dict(Authorization='Basic ' + base64.b64encode(args.dashd_rpc_username + ':' + args.dashd_rpc_password)), timeout=30)
-        yield helper.check(dashd, net)
-        temp_work = yield helper.getwork(dashd, net)
+        # connect to aerisd over JSON-RPC and do initial getmemorypool
+        url = '%s://%s:%i/' % ('https' if args.aerisd_rpc_ssl else 'http', args.aerisd_address, args.aerisd_rpc_port)
+        print '''Testing aerisd RPC connection to '%s' with username '%s'...''' % (url, args.aerisd_rpc_username)
+        aerisd = jsonrpc.HTTPProxy(url, dict(Authorization='Basic ' + base64.b64encode(args.aerisd_rpc_username + ':' + args.aerisd_rpc_password)), timeout=30)
+        yield helper.check(aerisd, net)
+        temp_work = yield helper.getwork(aerisd, net)
         
-        dashd_getinfo_var = variable.Variable(None)
+        aerisd_getinfo_var = variable.Variable(None)
         @defer.inlineCallbacks
         def poll_warnings():
-            dashd_getinfo_var.set((yield deferral.retry('Error while calling getinfo:')(dashd.rpc_getinfo)()))
+            aerisd_getinfo_var.set((yield deferral.retry('Error while calling getinfo:')(aerisd.rpc_getinfo)()))
         yield poll_warnings()
         deferral.RobustLoopingCall(poll_warnings).start(20*60)
         
@@ -131,14 +131,14 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
                 address = None
             
             if address is not None:
-                res = yield deferral.retry('Error validating cached address:', 5)(lambda: dashd.rpc_validateaddress(address))()
+                res = yield deferral.retry('Error validating cached address:', 5)(lambda: aerisd.rpc_validateaddress(address))()
                 if not res['isvalid'] or not res['ismine']:
-                    print '    Cached address is either invalid or not controlled by local dashd!'
+                    print '    Cached address is either invalid or not controlled by local aerisd!'
                     address = None
             
             if address is None:
-                print '    Getting payout address from dashd...'
-                address = yield deferral.retry('Error getting payout address from dashd:', 5)(lambda: dashd.rpc_getaccountaddress('p2pool'))()
+                print '    Getting payout address from aerisd...'
+                address = yield deferral.retry('Error getting payout address from aerisd:', 5)(lambda: aerisd.rpc_getaccountaddress('p2pool'))()
             
             with open(address_path, 'wb') as f:
                 f.write(address)
@@ -205,7 +205,7 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
 
             pubkeys = keypool()
             for i in xrange(args.numaddresses):
-                address = yield deferral.retry('Error getting a dynamic address from dashd:', 5)(lambda: dashd.rpc_getnewaddress('p2pool'))()
+                address = yield deferral.retry('Error getting a dynamic address from aerisd:', 5)(lambda: aerisd.rpc_getnewaddress('p2pool'))()
                 new_pubkey = dash_data.address_to_pubkey_hash(address, net.PARENT)
                 pubkeys.addkey(new_pubkey)
 
@@ -231,7 +231,7 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
         
         print 'Initializing work...'
         
-        node = p2pool_node.Node(factory, dashd, shares.values(), known_verified, net)
+        node = p2pool_node.Node(factory, aerisd, shares.values(), known_verified, net)
         yield node.start()
         
         for share_hash in shares:
@@ -326,8 +326,8 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
         
         print 'Listening for workers on %r port %i...' % (worker_endpoint[0], worker_endpoint[1])
         
-        wb = work.WorkerBridge(node, my_pubkey_hash, args.donation_percentage, merged_urls, args.worker_fee, args, pubkeys, dashd)
-        web_root = web.get_web_root(wb, datadir_path, dashd_getinfo_var, static_dir=args.web_static)
+        wb = work.WorkerBridge(node, my_pubkey_hash, args.donation_percentage, merged_urls, args.worker_fee, args, pubkeys, aerisd)
+        web_root = web.get_web_root(wb, datadir_path, aerisd_getinfo_var, static_dir=args.web_static)
         caching_wb = worker_interface.CachingWorkerBridge(wb)
         worker_interface.WorkerInterface(caching_wb).attach_to(web_root, get_handler=lambda request: request.redirect('/static/'))
         web_serverfactory = server.Site(web_root)
@@ -454,10 +454,10 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
                         this_str += '\n Pool: %sH/s Stale rate: %.1f%% Expected time to block: %s' % (
                             math.format(int(real_att_s)),
                             100*stale_prop,
-                            math.format_dt(2**256 / node.dashd_work.value['bits'].target / real_att_s),
+                            math.format_dt(2**256 / node.aerisd_work.value['bits'].target / real_att_s),
                         )
                         
-                        for warning in p2pool_data.get_warnings(node.tracker, node.best_share_var.value, net, dashd_getinfo_var.value, node.dashd_work.value):
+                        for warning in p2pool_data.get_warnings(node.tracker, node.best_share_var.value, net, aerisd_getinfo_var.value, node.aerisd_work.value):
                             print >>sys.stderr, '#'*40
                             print >>sys.stderr, '>>> Warning: ' + warning
                             print >>sys.stderr, '#'*40
@@ -496,7 +496,7 @@ def run():
         help='enable debugging mode',
         action='store_const', const=True, default=False, dest='debug')
     parser.add_argument('-a', '--address',
-        help='generate payouts to this address (default: <address requested from dashd>), or (dynamic)',
+        help='generate payouts to this address (default: <address requested from aerisd>), or (dynamic)',
         type=str, action='store', default=None, dest='address')
     parser.add_argument('-i', '--numaddresses',
         help='number of dash auto-generated addresses to maintain for getwork dynamic address allocation',
@@ -560,26 +560,26 @@ def run():
         help='''charge workers mining to their own dash address (by setting their miner's username to a dash address) this percentage fee to mine on your p2pool instance. Amount displayed at http://127.0.0.1:WORKER_PORT/fee (default: 0)''',
         type=float, action='store', default=0, dest='worker_fee')
     
-    dashd_group = parser.add_argument_group('dashd interface')
-    dashd_group.add_argument('--dashd-config-path', metavar='DASHD_CONFIG_PATH',
-        help='custom configuration file path (when dashd -conf option used)',
-        type=str, action='store', default=None, dest='dashd_config_path')
-    dashd_group.add_argument('--dashd-address', metavar='DASHD_ADDRESS',
+    aerisd_group = parser.add_argument_group('aerisd interface')
+    aerisd_group.add_argument('--aerisd-config-path', metavar='aerisd_CONFIG_PATH',
+        help='custom configuration file path (when aerisd -conf option used)',
+        type=str, action='store', default=None, dest='aerisd_config_path')
+    aerisd_group.add_argument('--aerisd-address', metavar='aerisd_ADDRESS',
         help='connect to this address (default: 127.0.0.1)',
-        type=str, action='store', default='127.0.0.1', dest='dashd_address')
-    dashd_group.add_argument('--dashd-rpc-port', metavar='DASHD_RPC_PORT',
+        type=str, action='store', default='127.0.0.1', dest='aerisd_address')
+    aerisd_group.add_argument('--aerisd-rpc-port', metavar='aerisd_RPC_PORT',
         help='''connect to JSON-RPC interface at this port (default: %s <read from dash.conf if password not provided>)''' % ', '.join('%s:%i' % (name, net.PARENT.RPC_PORT) for name, net in sorted(realnets.items())),
-        type=int, action='store', default=None, dest='dashd_rpc_port')
-    dashd_group.add_argument('--dashd-rpc-ssl',
+        type=int, action='store', default=None, dest='aerisd_rpc_port')
+    aerisd_group.add_argument('--aerisd-rpc-ssl',
         help='connect to JSON-RPC interface using SSL',
-        action='store_true', default=False, dest='dashd_rpc_ssl')
-    dashd_group.add_argument('--dashd-p2p-port', metavar='DASHD_P2P_PORT',
+        action='store_true', default=False, dest='aerisd_rpc_ssl')
+    aerisd_group.add_argument('--aerisd-p2p-port', metavar='aerisd_P2P_PORT',
         help='''connect to P2P interface at this port (default: %s <read from dash.conf if password not provided>)''' % ', '.join('%s:%i' % (name, net.PARENT.P2P_PORT) for name, net in sorted(realnets.items())),
-        type=int, action='store', default=None, dest='dashd_p2p_port')
+        type=int, action='store', default=None, dest='aerisd_p2p_port')
     
-    dashd_group.add_argument(metavar='DASHD_RPCUSERPASS',
-        help='dashd RPC interface username, then password, space-separated (only one being provided will cause the username to default to being empty, and none will cause P2Pool to read them from dash.conf)',
-        type=str, action='store', default=[], nargs='*', dest='dashd_rpc_userpass')
+    aerisd_group.add_argument(metavar='aerisd_RPCUSERPASS',
+        help='aerisd RPC interface username, then password, space-separated (only one being provided will cause the username to default to being empty, and none will cause P2Pool to read them from dash.conf)',
+        type=str, action='store', default=[], nargs='*', dest='aerisd_rpc_userpass')
     
     args = parser.parse_args()
     
@@ -596,12 +596,12 @@ def run():
     if not os.path.exists(datadir_path):
         os.makedirs(datadir_path)
     
-    if len(args.dashd_rpc_userpass) > 2:
+    if len(args.aerisd_rpc_userpass) > 2:
         parser.error('a maximum of two arguments are allowed')
-    args.dashd_rpc_username, args.dashd_rpc_password = ([None, None] + args.dashd_rpc_userpass)[-2:]
+    args.aerisd_rpc_username, args.aerisd_rpc_password = ([None, None] + args.aerisd_rpc_userpass)[-2:]
     
-    if args.dashd_rpc_password is None:
-        conf_path = args.dashd_config_path or net.PARENT.CONF_FILE_FUNC()
+    if args.aerisd_rpc_password is None:
+        conf_path = args.aerisd_config_path or net.PARENT.CONF_FILE_FUNC()
         if not os.path.exists(conf_path):
             parser.error('''dash configuration file not found. Manually enter your RPC password.\r\n'''
                 '''If you actually haven't created a configuration file, you should create one at %s with the text:\r\n'''
@@ -620,26 +620,26 @@ def run():
             k, v = line.split('=', 1)
             contents[k.strip()] = v.strip()
         for conf_name, var_name, var_type in [
-            ('rpcuser', 'dashd_rpc_username', str),
-            ('rpcpassword', 'dashd_rpc_password', str),
-            ('rpcport', 'dashd_rpc_port', int),
-            ('port', 'dashd_p2p_port', int),
+            ('rpcuser', 'aerisd_rpc_username', str),
+            ('rpcpassword', 'aerisd_rpc_password', str),
+            ('rpcport', 'aerisd_rpc_port', int),
+            ('port', 'aerisd_p2p_port', int),
         ]:
             if getattr(args, var_name) is None and conf_name in contents:
                 setattr(args, var_name, var_type(contents[conf_name]))
         if 'rpcssl' in contents and contents['rpcssl'] != '0':
-                args.dashd_rpc_ssl = True
-        if args.dashd_rpc_password is None:
+                args.aerisd_rpc_ssl = True
+        if args.aerisd_rpc_password is None:
             parser.error('''dash configuration file didn't contain an rpcpassword= line! Add one!''')
     
-    if args.dashd_rpc_username is None:
-        args.dashd_rpc_username = ''
+    if args.aerisd_rpc_username is None:
+        args.aerisd_rpc_username = ''
     
-    if args.dashd_rpc_port is None:
-        args.dashd_rpc_port = net.PARENT.RPC_PORT
+    if args.aerisd_rpc_port is None:
+        args.aerisd_rpc_port = net.PARENT.RPC_PORT
     
-    if args.dashd_p2p_port is None:
-        args.dashd_p2p_port = net.PARENT.P2P_PORT
+    if args.aerisd_p2p_port is None:
+        args.aerisd_p2p_port = net.PARENT.P2P_PORT
     
     if args.p2pool_port is None:
         args.p2pool_port = net.P2P_PORT

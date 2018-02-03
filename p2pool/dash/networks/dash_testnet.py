@@ -12,9 +12,9 @@ P2P_PORT = 19999
 ADDRESS_VERSION = 140
 SCRIPT_ADDRESS_VERSION = 19
 RPC_PORT = 19998
-RPC_CHECK = defer.inlineCallbacks(lambda dashd: defer.returnValue(
-            'dashaddress' in (yield dashd.rpc_help()) and
-            (yield dashd.rpc_getinfo())['testnet']
+RPC_CHECK = defer.inlineCallbacks(lambda aerisd: defer.returnValue(
+            'dashaddress' in (yield aerisd.rpc_help()) and
+            (yield aerisd.rpc_getinfo())['testnet']
         ))
 BLOCKHASH_FUNC = lambda data: pack.IntType(256).unpack(__import__('dash_hash').getPoWHash(data))
 POW_FUNC = lambda data: pack.IntType(256).unpack(__import__('dash_hash').getPoWHash(data))

@@ -20,13 +20,13 @@ print_throttle = 0.0
 class WorkerBridge(worker_interface.WorkerBridge):
     COINBASE_NONCE_LENGTH = 8
 
-    def __init__(self, node, my_pubkey_hash, donation_percentage, merged_urls, worker_fee, args, pubkeys, dashd):
+    def __init__(self, node, my_pubkey_hash, donation_percentage, merged_urls, worker_fee, args, pubkeys, aerisd):
         worker_interface.WorkerBridge.__init__(self)
         self.recent_shares_ts_work = []
 
         self.node = node
 
-        self.dashd = dashd
+        self.aerisd = aerisd
         self.pubkeys = pubkeys
         self.args = args
         self.my_pubkey_hash = my_pubkey_hash
@@ -97,7 +97,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
 
         self.current_work = variable.Variable(None)
         def compute_work():
-            t = self.node.dashd_work.value
+            t = self.node.aerisd_work.value
             bb = self.node.best_block_header.value
             if bb is not None and bb['previous_block'] == t['previous_block'] and self.node.net.PARENT.POW_FUNC(dash_data.block_header_type.pack(bb)) <= t['bits'].target:
                 print 'Skipping from block %x to block %x! NewHeight=%s' % (bb['previous_block'],
@@ -114,15 +114,15 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     transactions=[],
                     transaction_fees=[],
                     merkle_link=dash_data.calculate_merkle_link([None], 0),
-                    subsidy=self.node.dashd_work.value['subsidy'],
-                    last_update=self.node.dashd_work.value['last_update'],
-                    payment_amount=self.node.dashd_work.value['payment_amount'],
-                    packed_payments=self.node.dashd_work.value['packed_payments'],
+                    subsidy=self.node.aerisd_work.value['subsidy'],
+                    last_update=self.node.aerisd_work.value['last_update'],
+                    payment_amount=self.node.aerisd_work.value['payment_amount'],
+                    packed_payments=self.node.aerisd_work.value['packed_payments'],
                 )
                 '''
 
             self.current_work.set(t)
-        self.node.dashd_work.changed.watch(lambda _: compute_work())
+        self.node.aerisd_work.changed.watch(lambda _: compute_work())
         self.node.best_block_header.changed.watch(lambda _: compute_work())
         compute_work()
 
@@ -160,7 +160,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
             return
         self.address_throttle=time.time()
         print "ATTEMPTING TO FRESHEN ADDRESS."
-        self.address = yield deferral.retry('Error getting a dynamic address from dashd:', 5)(lambda: self.dashd.rpc_getnewaddress('p2pool'))()
+        self.address = yield deferral.retry('Error getting a dynamic address from aerisd:', 5)(lambda: self.aerisd.rpc_getnewaddress('p2pool'))()
         new_pubkey = dash_data.address_to_pubkey_hash(self.address, self.net)
         self.pubkeys.popleft()
         self.pubkeys.addkey(new_pubkey)
@@ -215,7 +215,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
         if (self.node.p2p_node is None or len(self.node.p2p_node.peers) == 0) and self.node.net.PERSIST:
             raise jsonrpc.Error_for_code(-12345)(u'p2pool is not connected to any peers')
         if time.time() > self.current_work.value['last_update'] + 60:
-            raise jsonrpc.Error_for_code(-12345)(u'lost contact with dashd')
+            raise jsonrpc.Error_for_code(-12345)(u'lost contact with aerisd')
         user, pubkey_hash, desired_share_target, desired_pseudoshare_target = self.get_user_details(user)
         return pubkey_hash, desired_share_target, desired_pseudoshare_target
 
@@ -299,13 +299,13 @@ class WorkerBridge(worker_interface.WorkerBridge):
 
 
             lookbehind = 3600//self.node.net.SHARE_PERIOD
-            block_subsidy = self.node.dashd_work.value['subsidy']
+            block_subsidy = self.node.aerisd_work.value['subsidy']
             if previous_share is not None and self.node.tracker.get_height(previous_share.hash) > lookbehind:
                 expected_payout_per_block = local_addr_rates.get(pubkey_hash, 0)/p2pool_data.get_pool_attempts_per_second(self.node.tracker, self.node.best_share_var.value, lookbehind) \
                     * block_subsidy*(1-self.donation_percentage/100) # XXX doesn't use global stale rate to compute pool hash
                 if expected_payout_per_block < self.node.net.PARENT.DUST_THRESHOLD:
                     desired_share_target = min(desired_share_target,
-                        dash_data.average_attempts_to_target((dash_data.target_to_average_attempts(self.node.dashd_work.value['bits'].target)*self.node.net.SPREAD)*self.node.net.PARENT.DUST_THRESHOLD/block_subsidy)
+                        dash_data.average_attempts_to_target((dash_data.target_to_average_attempts(self.node.aerisd_work.value['bits'].target)*self.node.net.SPREAD)*self.node.net.PARENT.DUST_THRESHOLD/block_subsidy)
                     )
 
         if True:
@@ -402,10 +402,10 @@ class WorkerBridge(worker_interface.WorkerBridge):
             pow_hash = self.node.net.PARENT.POW_FUNC(dash_data.block_header_type.pack(header))
             try:
                 if pow_hash <= header['bits'].target or p2pool.DEBUG:
-                    helper.submit_block(dict(header=header, txs=[new_gentx] + other_transactions), False, self.node.factory, self.node.dashd, self.node.dashd_work, self.node.net)
+                    helper.submit_block(dict(header=header, txs=[new_gentx] + other_transactions), False, self.node.factory, self.node.aerisd, self.node.aerisd_work, self.node.net)
                     if pow_hash <= header['bits'].target:
                         print
-                        print 'GOT BLOCK FROM MINER! Passing to dashd! %s%064x' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash)
+                        print 'GOT BLOCK FROM MINER! Passing to aerisd! %s%064x' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash)
                         print
                         # New block found
                         self.node.factory.new_block.happened(header_hash)

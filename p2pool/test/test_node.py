@@ -13,7 +13,7 @@ from p2pool import data, node, work
 from p2pool.dash import data as dash_data, networks, worker_interface
 from p2pool.util import deferral, jsonrpc, math, variable
 
-class dashd(object): # can be used as p2p factory, p2p protocol, or rpc jsonrpc proxy
+class aerisd(object): # can be used as p2p factory, p2p protocol, or rpc jsonrpc proxy
     def __init__(self):
         self.blocks = [0x00000000000132b9afeca5e9a2fdf4477338df6dcff1342300240bc70397c4bb]
         self.headers = {0x132b9afeca5e9a2fdf4477338df6dcff1342300240bc70397c4bb: {
@@ -146,10 +146,10 @@ mynet = math.Object(
 class MiniNode(object):
     @classmethod
     @defer.inlineCallbacks
-    def start(cls, net, factory, dashd, peer_ports, merged_urls):
+    def start(cls, net, factory, aerisd, peer_ports, merged_urls):
         self = cls()
         
-        self.n = node.Node(factory, dashd, [], [], net)
+        self.n = node.Node(factory, aerisd, [], [], net)
         yield self.n.start()
         
         self.n.p2p_node = node.P2PNode(self.n, port=0, max_incoming_conns=1000000, addr_store={}, connect_addrs=[('127.0.0.1', peer_port) for peer_port in peer_ports])
@@ -173,7 +173,7 @@ class MiniNode(object):
 class Test(unittest.TestCase):
     @defer.inlineCallbacks
     def test_node(self):
-        bitd = dashd()
+        bitd = aerisd()
         
         mm_root = resource.Resource()
         mm_root.putChild('', jsonrpc.HTTPServer(mm_provider))
@@ -221,7 +221,7 @@ class Test(unittest.TestCase):
         N = 3
         SHARES = 600
         
-        bitd = dashd()
+        bitd = aerisd()
         
         nodes = []
         for i in xrange(N):
